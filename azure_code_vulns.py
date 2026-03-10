@@ -1,7 +1,6 @@
 """
 DEMO FILE — INTENTIONALLY INSECURE
 Code vulnerabilities for GitHub Advanced Security Code Scanning demo.
-No real secret patterns — safe to push past push protection.
 """
 
 import os
@@ -9,228 +8,175 @@ import pickle
 import subprocess
 import hashlib
 import sqlite3
-import xml.etree.ElementTree as ET
+import yaml
 import requests
 from flask import Flask, request, redirect, send_file, make_response, jsonify
 
 app = Flask(__name__)
 
+
 # ──────────────────────────────────────────────
-# Fake credentials (not matching provider patterns,
-# so push protection won't block them)
+# ❌ SECRETS — for Secret Scanning demo
 # ──────────────────────────────────────────────
-DB_HOST = "prod-db.internal.example.com"
-DB_USER = "admin"
-DB_PASSWORD = "P@ssw0rd123!"
-API_KEY = "demo-api-key-not-real-1234567890abcdef"
-ADMIN_TOKEN = "my-hardcoded-admin-token-12345"
+
+# ❌ Slack Bot Token
+SLACK_TOKEN = "xoxb-123456789012-1234567890123-ABCDEFabcdef123456abcdef"
+
+# ❌ SendGrid API Key
+SENDGRID_KEY = "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"
+
+# ❌ Stripe API Key
+STRIPE_KEY = "sk_live_51HG3CMJ8xTR2D4F5g6H7j8K9L0mNpQrStUvWxYz"
 
 
 # ──────────────────────────────────────────────
-# ❌ CODE SCANNING TARGETS (CodeQL)
+# ❌ CODE SCANNING VULNERABILITIES (CodeQL)
 # ──────────────────────────────────────────────
 
 
-# ── SQL Injection ────────────────────────────
+# ── 1. SQL Injection (CWE-89) ────────────────
 
 @app.route("/customer")
 def get_customer():
-    """❌ SQL Injection — user input concatenated into query."""
     customer_id = request.args.get("id")
     conn = sqlite3.connect("app.db")
     cursor = conn.cursor()
-    query = "SELECT * FROM customers WHERE id = '" + customer_id + "'"
-    cursor.execute(query)
-    return jsonify(cursor.fetchall())
+    cursor.execute("SELECT * FROM customers WHERE id = '" + customer_id + "'")
+    rows = cursor.fetchall()
+    return jsonify(rows)
 
 
 @app.route("/users")
 def search_users():
-    """❌ SQL Injection — f-string in query."""
     name = request.args.get("name")
     conn = sqlite3.connect("app.db")
     cursor = conn.cursor()
     cursor.execute(f"SELECT * FROM users WHERE name LIKE '%{name}%'")
-    return jsonify(cursor.fetchall())
+    rows = cursor.fetchall()
+    return jsonify(rows)
 
 
-# ── Command Injection ────────────────────────
+# ── 2. Command Injection (CWE-78) ────────────
 
 @app.route("/ping")
 def ping_host():
-    """❌ Command Injection — user input in os.system."""
     host = request.args.get("host")
     os.system("ping -c 4 " + host)
-    return {"status": "done"}
+    return "done"
 
 
 @app.route("/diagnostics")
 def run_diagnostics():
-    """❌ Command Injection — user input in subprocess with shell=True."""
     cmd = request.args.get("cmd")
-    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-    return {"output": result.stdout}
+    output = subprocess.check_output(cmd, shell=True)
+    return output
 
 
-# ── Unsafe Deserialization ───────────────────
-
-@app.route("/process", methods=["POST"])
-def process_message():
-    """❌ Unsafe Deserialization — pickle.loads on untrusted data."""
-    data = request.get_data()
-    obj = pickle.loads(data)
-    return {"result": str(obj)}
-
-
-# ── Path Traversal ───────────────────────────
-
-@app.route("/download")
-def download_file():
-    """❌ Path Traversal — user-controlled filename in file access."""
-    filename = request.args.get("file")
-    return send_file("/var/data/" + filename)
-
-
-@app.route("/read")
-def read_file():
-    """❌ Path Traversal — open() with user-controlled path."""
-    filepath = request.args.get("path")
-    with open(filepath, "r") as f:
-        content = f.read()
-    return {"content": content}
-
-
-# ── Server-Side Request Forgery (SSRF) ──────
-
-@app.route("/fetch")
-def fetch_url():
-    """❌ SSRF — user-controlled URL passed to requests.get."""
-    url = request.args.get("url")
-    resp = requests.get(url)
-    return resp.content
-
-
-# ── Open Redirect ────────────────────────────
-
-@app.route("/redirect")
-def open_redirect():
-    """❌ Open Redirect — unvalidated redirect destination."""
-    target = request.args.get("next")
-    return redirect(target)
-
-
-# ── Cross-Site Scripting (XSS) ──────────────
-
-@app.route("/search")
-def search():
-    """❌ Reflected XSS — user input rendered in HTML without escaping."""
-    query = request.args.get("q", "")
-    html = "<h1>Results for: " + query + "</h1>"
-    return make_response(html)
-
-
-@app.route("/welcome")
-def welcome():
-    """❌ Reflected XSS — user input in HTML response."""
-    username = request.args.get("name", "")
-    return f"<html><body><p>Welcome, {username}!</p></body></html>"
-
-
-# ── Code Injection ───────────────────────────
+# ── 3. Code Injection (CWE-94) ───────────────
 
 @app.route("/calc", methods=["POST"])
 def calc():
-    """❌ Code Injection — eval() on user-supplied expression."""
-    expr = request.json.get("expr")
+    expr = request.form.get("expr")
     result = eval(expr)
-    return {"result": str(result)}
+    return str(result)
 
 
 @app.route("/run", methods=["POST"])
 def run_code():
-    """❌ Code Injection — exec() on user-supplied code."""
-    code = request.json.get("code")
+    code = request.form.get("code")
     exec(code)
-    return {"status": "executed"}
+    return "executed"
 
 
-# ── Weak Cryptographic Hashing ───────────────
+# ── 4. Unsafe Deserialization (CWE-502) ──────
+
+@app.route("/process", methods=["POST"])
+def process_message():
+    data = request.get_data()
+    obj = pickle.loads(data)
+    return str(obj)
+
+
+@app.route("/load-yaml", methods=["POST"])
+def load_yaml_data():
+    raw = request.get_data()
+    obj = yaml.load(raw, Loader=yaml.Loader)
+    return str(obj)
+
+
+# ── 5. Path Traversal (CWE-22) ───────────────
+
+@app.route("/download")
+def download_file():
+    filename = request.args.get("file")
+    path = "/var/data/" + filename
+    return send_file(path)
+
+
+@app.route("/read")
+def read_file_endpoint():
+    filepath = request.args.get("path")
+    f = open(filepath, "r")
+    content = f.read()
+    f.close()
+    return content
+
+
+# ── 6. SSRF (CWE-918) ────────────────────────
+
+@app.route("/fetch")
+def fetch_url():
+    url = request.args.get("url")
+    resp = requests.get(url)
+    return resp.text
+
+
+# ── 7. Open Redirect (CWE-601) ───────────────
+
+@app.route("/redirect")
+def open_redirect():
+    target = request.args.get("next")
+    return redirect(target)
+
+
+# ── 8. Reflected XSS (CWE-79) ────────────────
+
+@app.route("/search")
+def search():
+    query = request.args.get("q", "")
+    return make_response("<h1>Results for: " + query + "</h1>")
+
+
+@app.route("/greet")
+def greet():
+    name = request.args.get("name", "")
+    return "<html><body>Hello " + name + "</body></html>"
+
+
+# ── 9. Weak Hashing (CWE-327/328) ────────────
 
 @app.route("/login", methods=["POST"])
 def login():
-    """❌ Weak Hashing — MD5 for password hashing."""
     password = request.form.get("password")
-    password_hash = hashlib.md5(password.encode()).hexdigest()
-    return {"hash": password_hash}
+    hashed = hashlib.md5(password.encode()).hexdigest()
+    return jsonify({"hash": hashed})
 
 
-@app.route("/verify", methods=["POST"])
-def verify():
-    """❌ Weak Hashing — SHA1 for password hashing."""
-    password = request.form.get("password")
-    password_hash = hashlib.sha1(password.encode()).hexdigest()
-    return {"hash": password_hash}
-
-
-# ── Hardcoded Credentials ────────────────────
-
-@app.route("/admin")
-def admin_panel():
-    """❌ Hardcoded credential in authentication check."""
-    token = request.headers.get("Authorization")
-    if token == "Bearer " + ADMIN_TOKEN:
-        return {"status": "admin access granted"}
-    return {"status": "forbidden"}, 403
-
-
-@app.route("/db")
-def db_connect():
-    """❌ Hardcoded password in connection string."""
-    conn = sqlite3.connect("app.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT 1")
-    return {"status": "connected", "user": DB_USER, "password": DB_PASSWORD}
-
-
-# ── Log Injection ────────────────────────────
+# ── 10. Log Injection (CWE-117) ──────────────
 
 @app.route("/log")
 def log_activity():
-    """❌ Log Injection — unsanitized user input written to logs."""
     user = request.args.get("user")
-    app.logger.info("User logged in: " + user)
-    return {"status": "logged"}
+    app.logger.info("Login: " + user)
+    return "logged"
 
 
-# ── XML External Entity (XXE) ────────────────
-
-@app.route("/parse-xml", methods=["POST"])
-def parse_xml():
-    """❌ XXE — parsing untrusted XML without disabling external entities."""
-    xml_data = request.get_data()
-    root = ET.fromstring(xml_data)
-    return {"tag": root.tag, "text": root.text}
-
-
-# ── Insecure Temporary File ──────────────────
-
-@app.route("/export")
-def export_data():
-    """❌ Insecure temp file — predictable path, world-readable."""
-    data = request.args.get("data", "")
-    tmp_path = "/tmp/export_data.txt"
-    with open(tmp_path, "w") as f:
-        f.write(data)
-    return send_file(tmp_path)
-
-
-# ── Missing CSRF / Sensitive GET ─────────────
+# ── 11. SQL Injection via DELETE (CWE-89) ────
 
 @app.route("/delete-account")
 def delete_account():
-    """❌ State-changing action via GET request (no CSRF protection)."""
     user_id = request.args.get("id")
     conn = sqlite3.connect("app.db")
     conn.execute("DELETE FROM users WHERE id = " + user_id)
     conn.commit()
-    return {"status": "deleted"}
+    return "deleted"
